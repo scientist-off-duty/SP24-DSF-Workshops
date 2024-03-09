@@ -1,0 +1,182 @@
+---
+title: "Part III. Topic Modeling and Performance Evaluation"
+author: "Aishat Sadiq"
+date: '2024-02-27'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Data Preprocessing/Feature Selection
+```{r Feature Selection}
+
+devtools::install_github("ccss-rs/NAMEOFREPO")
+set.seed(31415)
+```
+
+Load Libraries
+
+```{r Load Libraries}
+# install.packages() 
+library(tidyverse)
+library(tidytext)
+library(topicmodels)
+library(superheat)
+library(ggrepel)
+# library(corrplot).     #maybe delete, can prob use gg
+
+
+```
+
+Load & Examine Dataset
+```{r Load & Examine Dataset}
+
+# Download from github: https://github.com/ccss-rs
+getwd()
+list.files()
+data <- read_csv("/Users/aishatsadiq/Library/Mobile Documents/iCloud~md~obsidian/Documents/PhD/CCSS Data Fellow/labor_market_discrimination.csv")
+
+####
+df <- whereever
+
+titles <- c("Twenty Thousand Leagues under the Sea",
+        "The War of the Worlds",
+        "Pride and Prejudice", 
+        "Great Expectations")
+books <- gutenberg_works(title %in% titles) %>%
+  gutenberg_download(meta_fields = "title")
+books
+
+# create a new column story that keeps track of which of the twelve short stories each line of text comes from, and remove the preliminary material that comes before the first story actually starts.
+sherlock <- books %>%
+    mutate(story = ifelse(str_detect(text, "ADVENTURE"),
+                          text,
+                          NA)) %>%
+    fill(story) %>%
+    filter(story != "THE ADVENTURES OF SHERLOCK HOLMES") %>%
+    mutate(story = factor(story, levels = unique(story)))
+
+
+```
+
+Tokenization
+
+1. Split raw text into "tokens"
+2. Remove stop words, 'casing, stemming
+3. Calculate word count
+
+Across these 4 books, we have 65 chapters and a vocabulary of size 18325.
+```{r Tokenization}
+
+# split raw text to individual words/tokens 
+word_counts <- by_chapter %>%
+  tidytext::unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(word != "holmes")  %>% # domain-expert feature selection decision: remove the word “holmes” because it is so common and used neutrally in all twelve stories
+  count(document, word, sort=TRUE)  # calculate word count
+
+# Lowercasing w/ base R's tolower(), could also use toupper(x) for uppercase transformation
+df[c('team', 'conf')] <- sapply(df[c('team', 'conf')], function(x) tolower(x))
+
+
+```
+
+
+```{r}
+
+###### Making long region data wide w/ pivot_wider()
+ncol(Preproc_OutIQR)
+Preproc_wide <- 
+  Preproc_OutIQR  %>% 
+  tidyr::pivot_wider(names_from = "region", 
+                     values_from = "participants")
+ncol(Preproc_wide)
+
+###### convert data from long to wide 
+chapters_dtm <- word_counts %>%
+  cast_dtm(document, word, n)
+
+```
+
+tdf
+
+Tokenizing by n-gram
+```{r}
+# most common bigrams
+df %>%
+  dplr::count(bigram, sort = TRUE)
+
+```
+
+
+Feature Extraction
+
+
+Latent Dirichlet Allocation (LDA)
+We choose K = 4 topics because we expect that each topic will match a book. Different hyperparameters can be set using the control argument. There are two types of outputs produced by the LDA model: the topic word distributions (for each topic, which words are common?) and the document-topic memberships (from which topics does a document come from?). For visualization, it will be easiest to extract these parameters using the tidy function, specifying whether we want the topics (beta) or memberships (gamma).
+```{r LDA}
+chapters_lda <- LDA(chapters_dtm, k = 4, control=##)
+chapters_lda
+
+## A LDA_VEM topic model with 4 topics.
+topics <- tidy(chapters_lda, matrix = "beta")
+memberships <- tidy(chapters_lda, matrix = "gamma")
+```
+
+Interpretation
+*term frequency (tf)
+*inverse document frequency (idf)
+
+*
+```{r}
+
+```
+
+
+Visualization
+```{r Visualization}
+# highest weight words per topic
+topics %>%
+  arrange(topic, -beta)
+# topic memberships per document
+memberships %>%
+  arrange(document, topic)
+save(topics, memberships, file = "12-1.rda")
+
+# construct a faceted barplot w/ arbitrary threshold of probability>0.0003
+ggplot(topics %>% filter(beta > 3e-4), aes(term, beta)) +
+  geom_col() +
+  facet_grid(topic ~ .) +
+  theme(axis.text.x = element_blank())
+
+# construct a heatmap
+topics %>%
+  filter(beta > 3e-4) %>%
+  pivot_wider(names_from = "term", values_from = "beta", values_fill = 0, names_repair = "unique") %>%
+  select(-1) %>%
+  superheat(
+  pretty.order.cols = TRUE,
+  legend = FALSE
+  )
+
+
+# aggregate topic proportions for each chapter
+memberships <- memberships %>%
+  mutate(
+book = str_extract(document, "[^_]+"),
+topic = factor(topic)
+  )
+
+ggplot(memberships, aes(topic, gamma)) +
+  geom_boxplot() +
+  facet_wrap(~book)
+
+
+```
+
+Code Sources
+*https://krisrs1128.github.io/stat679_notes/2022/06/02/week12-1.html
+*https://krisrs1128.github.io/stat679_notes/2022/06/02/week12-2.html
+
